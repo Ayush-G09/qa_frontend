@@ -11,7 +11,7 @@ type Props = {
   width?: string;
   height?: string;
   value: string;
-  onChange: (value: string) => void;
+  onChange?: (value: string) => void;
   ierror?: boolean;
   sx?: CSSProperties;
   disabled?: boolean;
@@ -123,7 +123,7 @@ function InputField({
           type={state.inputType}
           onFocus={handleFocus}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => onChange!(e.target.value)}
           ierror={ierror}
           autoComplete="off"
           style={sx}

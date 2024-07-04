@@ -15,6 +15,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { setIsUserLoggedIn } from "../store/themeAction";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowUp, faPaperclip } from "@fortawesome/free-solid-svg-icons";
+import axios from "axios";
 
 type State = {
   modal: boolean;
@@ -34,7 +35,7 @@ type State = {
     value: string;
     error: boolean;
   };
-  modalChild: "Login" | "Signup";
+  modalChild: "Login" | "Signup" | "Apikey";
   signupCompleted: {
     value: number;
     msg: string;
@@ -45,6 +46,11 @@ type State = {
   };
   question: string;
   selectedFile: File | null;
+  conversationId: string;
+  apikey: {
+    value: string;
+    error: boolean;
+  };
 };
 
 function Dashboard() {
@@ -78,6 +84,11 @@ function Dashboard() {
     },
     question: '',
     selectedFile: null,
+    conversationId: '',
+    apikey: {
+      value: "",
+      error: false,
+    },
   });
 
   const navigate = useNavigate();
@@ -92,17 +103,31 @@ function Dashboard() {
       setState((prev) => ({ ...prev, modalChild: "Login", modal: true }));
     } else if (params.get("modal") === "signup") {
       setState((prev) => ({ ...prev, modalChild: "Signup", modal: true }));
-    } else {
+    } else if (params.get("modal") === "apikey") {
+      setState((prev) => ({ ...prev, modalChild: "Apikey", modal: true }));
+    }else {
       setState((prev) => ({ ...prev, modal: false }));
     }
   }, [location.search]);
 
   const openModal = (type: string) => {
-    navigate(`?modal=${type}`);
+    const searchParams = new URLSearchParams(location.search);
+
+    searchParams.set('modal', type);
+    
+    const newUrl = `${location.pathname}?${searchParams.toString()}`;
+    
+    navigate(newUrl);
   };
 
   const closeModal = () => {
-    navigate("/");
+    const searchParams = new URLSearchParams(location.search);
+
+    searchParams.delete('modal');
+  
+    const newUrl = `${location.pathname}?${searchParams.toString()}`;
+
+    navigate(newUrl);
     setState((prev) => ({
       ...prev,
       signupCompleted: { ...prev.signupCompleted, value: 0, msg: "" },
@@ -145,6 +170,7 @@ function Dashboard() {
         try {
           const response = await axiosInstance.post("/auth", data);
           localStorage.setItem("authToken", response.data.token);
+          localStorage.setItem("userName", response.data.user.name);
           setState((prev) => ({
             ...prev,
             password: { ...prev.password, value: "" },
@@ -232,16 +258,87 @@ function Dashboard() {
     }
   };
 
+  const userName = localStorage.getItem('userName');
+  const token = localStorage.getItem('authToken');
+
+  useEffect(() => {
+    if(state.selectedFile !== null){
+        uploadFile();
+    }
+  }, [state.selectedFile]);
+
+  const uploadFile = async () => {
+    const formData = new FormData();
+    formData.append('file', state.selectedFile!);
+
+    try {
+        const res = await axiosInstance.post('/upload', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+            'x-auth-token': token, 
+          },
+        });
+        setState((prev) => ({...prev, conversationId: res.data.conversationId}));
+        const params = new URLSearchParams();
+        params.append('conversationId', res.data.conversationId);
+        navigate({
+            pathname: '/',
+            search: params.toString(),
+        });
+      } catch {
+        alert('unable to upload file try again');
+      }
+  }
+
+  const askQuestion = async () => {
+    const {question, conversationId} = state;
+    try {
+        const res = await axiosInstance.post(`/question`, { question, conversationId }, {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-auth-token': token,
+          },
+        });
+        console.log({res})
+      } catch (err: any) {
+        console.log(err);
+        if(err.response.status === 400){
+          openModal('apikey');
+        }
+      }
+  }
+
+  const submitApikey = async () => {
+    if(state.apikey.value.trim() === ''){
+      setState((prev) => ({...prev, apikey: {...prev.apikey, error: true}}));
+    }else{
+      const apikey = state.apikey.value;
+      try {
+        await axiosInstance.put(`/user/apikey`, { apikey }, {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-auth-token': token,
+          },
+        });
+        closeModal();
+        setState((prev) => ({...prev, apikey: {...prev.apikey, error: false}}));
+      } catch {
+        alert('Error in saving apikey please try again');
+        setState((prev) => ({...prev, apikey: {...prev.apikey, error: false, value: ''}}));
+      }
+    }
+  }
+
   return (
     <Container>
-      <Sidebar />
+      <Sidebar removeFile={() => setState((prev) => ({...prev, selectedFile: null}))} />
       <Content>
         <ContentHeader>
           <Label
             sx={{ marginLeft: "1rem" }}
             font={"sm"}
             weight={"b"}
-            content={getGreeting()}
+            content={userName ? `${getGreeting()}, ${userName}` : getGreeting()}
           />
           <ModeContainer>
             <ModeToggle />
@@ -271,10 +368,9 @@ function Dashboard() {
           )}
         </Context>
         <div style={{width: '100%', height: '10%', display: 'flex', gap: '15px', alignItems: 'center', justifyContent: 'center'}}>
-            {/* <Button disabled={!isUserLoggedIn} sx={{padding: '0.7rem 0.8rem'}} icon={<FontAwesomeIcon icon={faPaperclip}/>} onClick={() => console.log('aa')} /> */}
-            <InputField placeholder={""} type={"file"} value={""} onChange={() => console.log('')} selectedFile={state.selectedFile} setFile={(e) => setState((prev) => ({...prev, selectedFile: e}))}/>
-            <InputField sx={{minWidth: '60%', pointerEvents: isUserLoggedIn ? 'auto' : 'none'}} placeholder={isUserLoggedIn ? "Ask me a question" : "Login to ask"} type={"text"} value={state.question} onChange={(e) => setState((prev) => ({...prev, question: e}))}/>
-            <Button disabled={!isUserLoggedIn} sx={{padding: '0.7rem 0.8rem'}} icon={<FontAwesomeIcon icon={faArrowUp} />} onClick={() => console.log('aa')}/>
+            <InputField placeholder={""} type={"file"} value={""} selectedFile={state.selectedFile} setFile={(e) => setState((prev) => ({...prev, selectedFile: e}))}/>
+            <InputField sx={{minWidth: '60%', pointerEvents: isUserLoggedIn && state.selectedFile !== null ? 'auto' : 'none'}} placeholder={isUserLoggedIn ? state.selectedFile !== null ? "Ask me a question" : "Upload a file first" : "Login to ask"} type={"text"} value={state.question} onChange={(e) => setState((prev) => ({...prev, question: e}))}/>
+            <Button disabled={(!isUserLoggedIn || state.selectedFile === null || state.question === '')} sx={{padding: '0.7rem 0.8rem'}} icon={<FontAwesomeIcon icon={faArrowUp} />} onClick={askQuestion}/>
         </div>
       </Content>
       {state.modal && (
@@ -282,139 +378,174 @@ function Dashboard() {
           <Spacer type={"vertical"} value={"2rem"} />
           <Label font={"md"} weight={"b"} content={state.modalChild} />
           <Spacer type={"vertical"} value={"2rem"} />
-          {state.modalChild === "Signup" && (
-            <>
-              <InputField
-                width="20vw"
-                placeholder={"Name"}
-                type={"text"}
-                value={state.name.value}
-                ierror={state.name.error}
-                onChange={(e) =>
-                  setState((prev) => ({
-                    ...prev,
-                    name: { ...prev.name, value: e },
-                  }))
-                }
-              />
-              {state.name.error && (
-                <Label
-                  sx={{ color: "red" }}
-                  font={"xsm"}
-                  weight={"b"}
-                  content={"Name required"}
-                />
-              )}
-              <Spacer type={"vertical"} value={"1rem"} />
-            </>
-          )}
-          <InputField
+          {state.modalChild === 'Apikey' ? (
+    <>
+      <Label font={"xsm"} weight={"b"} content={"Enter you openai api key here"}/>
+      <Spacer type={"vertical"} value={"1rem"} />
+      <InputField
             width="20vw"
-            placeholder={"Email"}
-            type={"email"}
-            value={state.email.value}
-            ierror={state.email.error}
+            placeholder={"Openai api key"}
+            type={"text"}
+            value={state.apikey.value}
+            ierror={state.apikey.error}
             onChange={(e) =>
               setState((prev) => ({
                 ...prev,
-                email: { ...prev.email, value: e },
+                apikey: { ...prev.apikey, value: e },
               }))
             }
           />
-          {state.email.error && (
+          {state.apikey.error && (
+            <Label
+              sx={{ color: "red" }}
+              font={"xsm"}
+              weight={"b"}
+              content={"Please enter key"}
+            />
+          )}
+          <Spacer type={"vertical"} value={"2rem"} />
+      <Button
+        sx={{ width: "5vw" }}
+        placeholder={'Save'}
+        onClick={submitApikey}
+      />
+    </>
+    ) :
+    <>
+      {state.modalChild === 'Signup' && 
+        <>
+          <InputField
+            width="20vw"
+            placeholder={"Name"}
+            type={"text"}
+            value={state.name.value}
+            ierror={state.name.error}
+            onChange={(e) =>
+              setState((prev) => ({
+                ...prev,
+                name: { ...prev.name, value: e },
+              }))
+            }
+          />
+          {state.name.error && (
+            <Label
+              sx={{ color: "red" }}
+              font={"xsm"}
+              weight={"b"}
+              content={"Name required"}
+            />
+          )}
+          <Spacer type={"vertical"} value={"1rem"} />
+        </>
+      }
+      <InputField
+        width="20vw"
+        placeholder={"Email"}
+        type={"email"}
+        value={state.email.value}
+        ierror={state.email.error}
+        onChange={(e) =>
+          setState((prev) => ({
+            ...prev,
+            email: { ...prev.email, value: e },
+          }))
+        }
+      />
+      {state.email.error && (
+        <Label
+          sx={{ color: "red" }}
+          font={"xsm"}
+          weight={"b"}
+          content={
+            state.email.value.trim() === ""
+              ? "Email required"
+              : "Enter a valid email"
+          }
+        />
+      )}
+      <Spacer type={"vertical"} value={"1rem"} />
+      <InputField
+        width="20vw"
+        placeholder={"Password"}
+        type={"password"}
+        value={state.password.value}
+        ierror={state.password.error}
+        onChange={(e) =>
+          setState((prev) => ({
+            ...prev,
+            password: { ...prev.password, value: e },
+          }))
+        }
+      />
+      {state.password.error && (
+        <Label
+          sx={{ color: "red" }}
+          font={"xsm"}
+          weight={"b"}
+          content={"Password required"}
+        />
+      )}
+      {state.modalChild === "Signup" && (
+        <>
+          <Spacer type={"vertical"} value={"1rem"} />
+          <InputField
+            width="20vw"
+            placeholder={"Confirm Password"}
+            type={"password"}
+            value={state.cnfPassword.value}
+            ierror={state.cnfPassword.error}
+            onChange={(e) =>
+              setState((prev) => ({
+                ...prev,
+                cnfPassword: { ...prev.cnfPassword, value: e },
+              }))
+            }
+          />
+          {state.cnfPassword.error && (
             <Label
               sx={{ color: "red" }}
               font={"xsm"}
               weight={"b"}
               content={
-                state.email.value.trim() === ""
-                  ? "Email required"
-                  : "Enter a valid email"
+                state.cnfPassword.value === ""
+                  ? "Password required"
+                  : "Password is not same"
               }
             />
           )}
-          <Spacer type={"vertical"} value={"1rem"} />
-          <InputField
-            width="20vw"
-            placeholder={"Password"}
-            type={"password"}
-            value={state.password.value}
-            ierror={state.password.error}
-            onChange={(e) =>
-              setState((prev) => ({
-                ...prev,
-                password: { ...prev.password, value: e },
-              }))
-            }
-          />
-          {state.password.error && (
-            <Label
-              sx={{ color: "red" }}
-              font={"xsm"}
-              weight={"b"}
-              content={"Password required"}
-            />
-          )}
-          {state.modalChild === "Signup" && (
-            <>
-              <Spacer type={"vertical"} value={"1rem"} />
-              <InputField
-                width="20vw"
-                placeholder={"Confirm Password"}
-                type={"password"}
-                value={state.cnfPassword.value}
-                ierror={state.cnfPassword.error}
-                onChange={(e) =>
-                  setState((prev) => ({
-                    ...prev,
-                    cnfPassword: { ...prev.cnfPassword, value: e },
-                  }))
-                }
-              />
-              {state.cnfPassword.error && (
-                <Label
-                  sx={{ color: "red" }}
-                  font={"xsm"}
-                  weight={"b"}
-                  content={
-                    state.cnfPassword.value === ""
-                      ? "Password required"
-                      : "Password is not same"
-                  }
-                />
-              )}
-            </>
-          )}
+        </>
+      )}
+      <Spacer type={"vertical"} value={"2rem"} />
+      <Button
+        sx={{ width: "5vw" }}
+        placeholder={state.modalChild}
+        onClick={state.modalChild === "Signup" ? signup : login}
+      />
+      {state.signupCompleted.value !== 0 && (
+        <>
           <Spacer type={"vertical"} value={"2rem"} />
-          <Button
-            sx={{ width: "5vw" }}
-            placeholder={state.modalChild}
-            onClick={state.modalChild === "Signup" ? signup : login}
+          <Label
+            sx={{
+              color: state.signupCompleted.value === 1 ? "green" : "red",
+            }}
+            font={"xsm"}
+            weight={"b"}
+            content={state.signupCompleted.msg}
           />
-          {state.signupCompleted.value !== 0 && (
-            <>
-              <Spacer type={"vertical"} value={"2rem"} />
-              <Label
-                sx={{
-                  color: state.signupCompleted.value === 1 ? "green" : "red",
-                }}
-                font={"xsm"}
-                weight={"b"}
-                content={state.signupCompleted.msg}
-              />
-            </>
-          )}
-          {state.loginError.value && (
-            <>
-              <Spacer type={"vertical"} value={"2rem"} />
-              <Label
-                sx={{ color: "red" }}
-                font={"xsm"}
-                weight={"b"}
-                content={state.loginError.msg}
-              />
-            </>
-          )}
+        </>
+      )}
+      {state.loginError.value && (
+        <>
+          <Spacer type={"vertical"} value={"2rem"} />
+          <Label
+            sx={{ color: "red" }}
+            font={"xsm"}
+            weight={"b"}
+            content={state.loginError.msg}
+          />
+        </>
+      )}
+    </>}
         </Modal>
       )}
     </Container>

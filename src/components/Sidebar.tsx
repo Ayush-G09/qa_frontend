@@ -14,11 +14,15 @@ import Spacer from "./Spacer";
 import { useDispatch, useSelector } from "react-redux";
 import { setIsUserLoggedIn } from "../store/themeAction";
 
+type Props = {
+    removeFile: () => void;
+}
+
 type State = {
   modal: boolean;
 };
 
-function Sidebar() {
+function Sidebar({removeFile}: Props) {
   const [state, setState] = useState<State>({
     modal: false,
   });
@@ -41,6 +45,8 @@ function Sidebar() {
   const logout = () => {
     dispatch(setIsUserLoggedIn(false));
     localStorage.removeItem('authToken');
+    localStorage.removeItem('userName');
+    removeFile();
     navigate("/");
   }
 

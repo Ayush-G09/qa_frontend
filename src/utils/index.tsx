@@ -88,10 +88,10 @@ export const saveEmbeddings = async (
   );
 
   const pinecone = new Pinecone({
-    apiKey: process.env.EACT_APP_PINECONE_API_KEY!,
+    apiKey: process.env.REACT_APP_PINECONE_API_KEY!,
   });
 
-  const pineconeIndex = pinecone.Index(process.env.EACT_APP_PINECONE_INDEX!);
+  const pineconeIndex = pinecone.Index(process.env.REACT_APP_PINECONE_INDEX!);
 
   const openAIEmbeddings = new OpenAIEmbeddings({
     openAIApiKey: apiKey,
@@ -127,10 +127,10 @@ export const ask = async (
   });
 
   const pinecone = new Pinecone({
-    apiKey: process.env.EACT_APP_PINECONE_API_KEY!,
+    apiKey: process.env.REACT_APP_PINECONE_API_KEY!,
   });
 
-  const pineconeIndex = pinecone.Index(process.env.EACT_APP_PINECONE_INDEX!);
+  const pineconeIndex = pinecone.Index(process.env.REACT_APP_PINECONE_INDEX!);
 
   const vectorStore = await PineconeStore.fromExistingIndex(openAIEmbeddings, {
     pineconeIndex,

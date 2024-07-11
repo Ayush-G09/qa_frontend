@@ -1,9 +1,16 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
-import Sidebar from "../components/Sidebar";
+import Sidebar, { hideScrollbarStyles } from "../components/Sidebar";
 import Label from "../components/Label";
-import { getGreeting, validateEmail } from "../utils";
-import ModeToggle from "../components/ModeToggle";
+import {
+  ask,
+  getGreeting,
+  getText,
+  saveEmbeddings,
+  split,
+  validateEmail,
+} from "../utils";
+import ModeToggle, { TModeContainer } from "../components/ModeToggle";
 import Logo from "../assets/Logo";
 import Button from "../components/Button";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -14,8 +21,16 @@ import axiosInstance from "../config/axiosConfig";
 import { useDispatch, useSelector } from "react-redux";
 import { setIsUserLoggedIn } from "../store/themeAction";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowUp, faPaperclip } from "@fortawesome/free-solid-svg-icons";
-import axios from "axios";
+import { faArrowUp, faKey } from "@fortawesome/free-solid-svg-icons";
+import Notifications from "../components/Notifications";
+import Loader from "../loader/Loader";
+import { BounceLoader } from "react-spinners";
+
+type Card = {
+  msg: string;
+  type: "error" | "success";
+  id: number;
+};
 
 type State = {
   modal: boolean;
@@ -36,14 +51,6 @@ type State = {
     error: boolean;
   };
   modalChild: "Login" | "Signup" | "Apikey";
-  signupCompleted: {
-    value: number;
-    msg: string;
-  };
-  loginError: {
-    value: boolean;
-    msg: string;
-  };
   question: string;
   selectedFile: File | null;
   conversationId: string;
@@ -51,10 +58,23 @@ type State = {
     value: string;
     error: boolean;
   };
+  cards: Card[];
+  conversations: {
+    chat: { from: "user" | "assistant"; data: string; _id: string }[];
+    name: string;
+    _id: string;
+    file: {
+      name: string;
+    };
+  }[];
+  selectedFileName: string;
+  loading: {
+    value: boolean;
+    msg: string;
+  };
 };
 
 function Dashboard() {
-
   const [state, setState] = useState<State>({
     modal: false,
     email: {
@@ -74,20 +94,19 @@ function Dashboard() {
       value: "",
       error: false,
     },
-    signupCompleted: {
-      value: 0,
-      msg: "",
-    },
-    loginError: {
-      value: false,
-      msg: "Invalid credentials",
-    },
-    question: '',
+    question: "",
     selectedFile: null,
-    conversationId: '',
+    conversationId: "",
     apikey: {
       value: "",
       error: false,
+    },
+    cards: [],
+    conversations: [],
+    selectedFileName: "",
+    loading: {
+      value: false,
+      msg: "",
     },
   });
 
@@ -96,46 +115,118 @@ function Dashboard() {
 
   const isUserLoggedIn = useSelector((state: any) => state.isUserLoggedIn);
   const dispatch = useDispatch();
-  
+  const params = new URLSearchParams(location.search);
+
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
     if (params.get("modal") === "login") {
       setState((prev) => ({ ...prev, modalChild: "Login", modal: true }));
     } else if (params.get("modal") === "signup") {
       setState((prev) => ({ ...prev, modalChild: "Signup", modal: true }));
     } else if (params.get("modal") === "apikey") {
       setState((prev) => ({ ...prev, modalChild: "Apikey", modal: true }));
-    }else {
+    } else {
       setState((prev) => ({ ...prev, modal: false }));
     }
   }, [location.search]);
 
+  const logout = () => {
+    dispatch(setIsUserLoggedIn(false));
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("userName");
+    setState((prev) => ({
+      ...prev,
+      modal: false,
+      email: {
+        value: "",
+        error: false,
+      },
+      password: {
+        value: "",
+        error: false,
+      },
+      modalChild: "Login",
+      name: {
+        value: "",
+        error: false,
+      },
+      cnfPassword: {
+        value: "",
+        error: false,
+      },
+      question: "",
+      selectedFile: null,
+      conversationId: "",
+      apikey: {
+        value: "",
+        error: false,
+      },
+      cards: [],
+      conversations: [],
+      selectedFileName: "",
+      loading: {
+        value: false,
+        msg: "",
+      },
+    }));
+    navigate("/");
+    addNotification("Loged out successfully", "success");
+  };
+
+  const addNewConversation = () => {
+    if (state.conversations.some((conv) => conv._id === "NewConversation")) {
+      return;
+    }
+
+    if (!isUserLoggedIn) {
+      return;
+    }
+
+    setState((prev) => ({
+      ...prev,
+      conversations: [
+        ...prev.conversations,
+        {
+          chat: [],
+          name: "New Conversation",
+          _id: "NewConversation",
+          file: { name: "" },
+        },
+      ],
+      selectedFileName: "",
+      selectedFile: null,
+      conversationId: "NewConversation",
+    }));
+
+    const params = new URLSearchParams();
+    params.append("conversationId", "NewConversation");
+    navigate({
+      pathname: "/",
+      search: params.toString(),
+    });
+  };
+
   const openModal = (type: string) => {
     const searchParams = new URLSearchParams(location.search);
 
-    searchParams.set('modal', type);
-    
-    const newUrl = `${location.pathname}?${searchParams.toString()}`;
-    
-    navigate(newUrl);
+    searchParams.set("modal", type);
+
+    navigate(`${location.pathname}?${searchParams.toString()}`);
   };
 
   const closeModal = () => {
     const searchParams = new URLSearchParams(location.search);
 
-    searchParams.delete('modal');
-  
-    const newUrl = `${location.pathname}?${searchParams.toString()}`;
+    searchParams.delete("modal");
 
-    navigate(newUrl);
+    navigate(`${location.pathname}?${searchParams.toString()}`);
     setState((prev) => ({
       ...prev,
-      signupCompleted: { ...prev.signupCompleted, value: 0, msg: "" },
       name: { ...prev.name, value: "", error: false },
       email: { ...prev.email, value: "", error: false },
       password: { ...prev.password, value: "", error: false },
       cnfPassword: { ...prev.cnfPassword, value: "", error: false },
-      loginError: { ...prev.loginError, value: false },
     }));
   };
 
@@ -146,7 +237,7 @@ function Dashboard() {
         cnfPassword: { ...prev.cnfPassword, error: false },
       }));
     }
-  }, [state.cnfPassword.value]);
+  }, [state.cnfPassword.value, state.password.value]);
 
   const login = async () => {
     if (state.email.value.trim() === "") {
@@ -173,17 +264,18 @@ function Dashboard() {
           localStorage.setItem("userName", response.data.user.name);
           setState((prev) => ({
             ...prev,
+            apikey: { ...prev.apikey, value: response.data.user.apikey },
+          }));
+          setState((prev) => ({
+            ...prev,
             password: { ...prev.password, value: "" },
             email: { ...prev.email, value: "" },
-            loginError: { ...prev.loginError, value: false },
           }));
+          addNotification(`Welcome ${response.data.user.name}`, "success");
           dispatch(setIsUserLoggedIn(true));
           navigate("/");
         } catch {
-          setState((prev) => ({
-            ...prev,
-            loginError: { ...prev.loginError, value: true },
-          }));
+          addNotification("Invalid credentials", "error");
         }
       }
     } else {
@@ -225,27 +317,17 @@ function Dashboard() {
         };
         try {
           await axiosInstance.post("/users", data);
+          addNotification("Account created successfully.", "success");
           setState((prev) => ({
             ...prev,
-            signupCompleted: {
-              ...prev.signupCompleted,
-              value: 1,
-              msg: "Account created successfully.",
-            },
             name: { ...prev.name, value: "" },
             email: { ...prev.email, value: "" },
             password: { ...prev.password, value: "" },
             cnfPassword: { ...prev.cnfPassword, value: "" },
           }));
+          closeModal();
         } catch (error: any) {
-          setState((prev) => ({
-            ...prev,
-            signupCompleted: {
-              ...prev.signupCompleted,
-              value: 2,
-              msg: error.response.data.msg,
-            },
-          }));
+          addNotification(error.response.data.msg, "success");
         }
       } else {
         setState((prev) => ({
@@ -258,299 +340,695 @@ function Dashboard() {
     }
   };
 
-  const userName = localStorage.getItem('userName');
-  const token = localStorage.getItem('authToken');
+  const userName = localStorage.getItem("userName");
+  const token = localStorage.getItem("authToken");
 
   useEffect(() => {
-    if(state.selectedFile !== null){
-        uploadFile();
+    if (state.selectedFile !== null) {
+      uploadFile(state.conversationId, state.selectedFile.name);
     }
   }, [state.selectedFile]);
 
-  const uploadFile = async () => {
-    const formData = new FormData();
-    formData.append('file', state.selectedFile!);
-
+  const saveFileName = async (conversationId: string, newName: string) => {
     try {
-        const res = await axiosInstance.post('/upload', formData, {
+      const res = await axiosInstance.put(
+        "/upload/conversationName",
+        { conversationId, newName },
+        {
           headers: {
-            'Content-Type': 'multipart/form-data',
-            'x-auth-token': token, 
+            "Content-Type": "application/json",
+            "x-auth-token": token,
           },
-        });
-        setState((prev) => ({...prev, conversationId: res.data.conversationId}));
-        const params = new URLSearchParams();
-        params.append('conversationId', res.data.conversationId);
-        navigate({
-            pathname: '/',
-            search: params.toString(),
-        });
-      } catch {
-        alert('unable to upload file try again');
-      }
-  }
-
-  const askQuestion = async () => {
-    const {question, conversationId} = state;
-    try {
-        const res = await axiosInstance.post(`/question`, { question, conversationId }, {
-          headers: {
-            'Content-Type': 'application/json',
-            'x-auth-token': token,
-          },
-        });
-        console.log({res})
-      } catch (err: any) {
-        console.log(err);
-        if(err.response.status === 400){
-          openModal('apikey');
         }
+      );
+      addNotification("Name updated", "success");
+      setState((prev) => ({ ...prev, conversations: res.data.conversations }));
+    } catch (err: any) {
+      if (err.response.status === 401) {
+        logout();
       }
-  }
+      addNotification("Failed to rename, try again", "error");
+    }
+  };
 
-  const submitApikey = async () => {
-    if(state.apikey.value.trim() === ''){
-      setState((prev) => ({...prev, apikey: {...prev.apikey, error: true}}));
-    }else{
-      const apikey = state.apikey.value;
-      try {
-        await axiosInstance.put(`/user/apikey`, { apikey }, {
+  const updateFileName = async (conversationId: string, newName: string) => {
+    try {
+      const res = await axiosInstance.put(
+        "/upload/fileName",
+        { conversationId, newName },
+        {
           headers: {
-            'Content-Type': 'application/json',
-            'x-auth-token': token,
+            "Content-Type": "application/json",
+            "x-auth-token": token,
           },
-        });
-        closeModal();
-        setState((prev) => ({...prev, apikey: {...prev.apikey, error: false}}));
-      } catch {
-        alert('Error in saving apikey please try again');
-        setState((prev) => ({...prev, apikey: {...prev.apikey, error: false, value: ''}}));
+        }
+      );
+      addNotification("File removed", "success");
+      setState((prev) => ({ ...prev, conversations: res.data.conversations }));
+      const params = new URLSearchParams();
+      params.append("conversationId", res.data.newConversationId);
+      navigate({
+        pathname: "/",
+        search: params.toString(),
+      });
+    } catch (err: any) {
+      if (err.response.status === 401) {
+        logout();
+      }
+      addNotification("Failed to delete file, try again", "error");
+    }
+  };
+
+  const uploadFile = async (conversationId: string, fileName: string) => {
+    setState((prev) => ({
+      ...prev,
+      loading: {
+        ...prev.loading,
+        value: true,
+        msg: "creating conversation...",
+      },
+    }));
+    try {
+      const res = await axiosInstance.post(
+        "/upload",
+        { conversationId, fileName },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "x-auth-token": token,
+          },
+        }
+      );
+      setState((prev) => ({
+        ...prev,
+        loading: { ...prev.loading, msg: "Seprating content of the file..." },
+      }));
+      const text = await getText(state.selectedFile!);
+      if (!text) {
+        setState((prev) => ({
+          ...prev,
+          loading: { ...prev.loading, value: false, msg: "" },
+        }));
+        addNotification("Failed to extract text from PDF, try again", "error");
+        deleteConversations(res.data.conversationId);
+        return;
+      }
+      setState((prev) => ({
+        ...prev,
+        loading: { ...prev.loading, msg: "Creating chunks of content..." },
+      }));
+      const chunks = await split(text);
+      setState((prev) => ({
+        ...prev,
+        loading: { ...prev.loading, msg: "Generating embeddings..." },
+      }));
+      const embeddingComplete = await saveEmbeddings(
+        chunks,
+        res.data.conversationId,
+        state.apikey.value
+      );
+      if (!embeddingComplete) {
+        setState((prev) => ({
+          ...prev,
+          loading: { ...prev.loading, value: false, msg: "" },
+        }));
+        addNotification("Failed to create the embeddings, try again", "error");
+        deleteConversations(res.data.conversationId);
+        return;
+      }
+      setState((prev) => ({
+        ...prev,
+        conversationId: res.data.conversationId,
+        conversations: res.data.conversations,
+        loading: { ...prev.loading, value: false, msg: "" },
+      }));
+      const params = new URLSearchParams();
+      params.append("conversationId", res.data.conversationId);
+      navigate({
+        pathname: "/",
+        search: params.toString(),
+      });
+    } catch (err: any) {
+      setState((prev) => ({
+        ...prev,
+        selectedFile: null,
+        selectedFileName: "",
+        loading: { ...prev.loading, value: false, msg: "" },
+      }));
+      if (err.response.status === 401) {
+        logout();
+      }
+      if (err.response.status === 400) {
+        addNotification("Please add api key", "error");
+        openModal("apikey");
+      } else {
+        addNotification("unable to upload file try again", "error");
       }
     }
-  }
+  };
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [state.conversations]);
+
+  useEffect(() => {
+    if (
+      state.conversations.find((con) => con._id === state.conversationId)?.chat
+        .length
+    ) {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [state.conversationId]);
+
+  const askQuestion = async () => {
+    const question = state.question;
+    const newMsg = [
+      { from: "user", data: state.question, _id: "test1" },
+      { from: "assistant", data: "thinking...", _id: "test2" },
+    ] as { from: "user" | "assistant"; data: string; _id: string }[];
+
+    const updatedConversations = state.conversations.map((conversation) => {
+      if (conversation._id === state.conversationId) {
+        return {
+          ...conversation,
+          chat: [...conversation.chat, ...newMsg],
+        };
+      }
+      return conversation;
+    });
+
+    setState((prev) => ({
+      ...prev,
+      conversations: updatedConversations,
+      question: "",
+    }));
+    const res = await ask(state.conversationId, question, state.apikey.value);
+    if (!res) {
+      return;
+    }
+    const data = {
+      conversationId: state.conversationId,
+      question: question,
+      answer: res.content,
+    };
+    try {
+      const res = await axiosInstance.post("/question", data, {
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-token": token,
+        },
+      });
+      setState((prev) => ({ ...prev, conversations: res.data.conversations }));
+    } catch (err: any) {
+      if (err.response.status === 401) {
+        logout();
+      }
+      addNotification("Error in saving the chat", "error");
+    }
+  };
+
+  const submitApikey = async () => {
+    if (state.apikey.value.trim() === "") {
+      setState((prev) => ({
+        ...prev,
+        apikey: { ...prev.apikey, error: true },
+      }));
+    } else {
+      const apikey = state.apikey.value;
+      setState((prev) => ({
+        ...prev,
+        loading: { value: true, msg: "Saving api key" },
+      }));
+      try {
+        await axiosInstance.put(
+          `/user/apikey`,
+          { apikey },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "x-auth-token": token,
+            },
+          }
+        );
+        closeModal();
+        setState((prev) => ({
+          ...prev,
+          apikey: { ...prev.apikey, error: false },
+        }));
+      } catch (err: any) {
+        if (err.response.status === 401) {
+          logout();
+        }
+        addNotification("Error in saving apikey please try again", "error");
+        setState((prev) => ({
+          ...prev,
+          apikey: { ...prev.apikey, error: false, value: "" },
+        }));
+      } finally {
+        setState((prev) => ({ ...prev, loading: { value: false, msg: "" } }));
+      }
+    }
+  };
+
+  const addNotification = (msg: string, type: "error" | "success") => {
+    const id = new Date().getTime();
+    setState((prev) => ({
+      ...prev,
+      cards: [...prev.cards, { id, msg, type }],
+    }));
+
+    setTimeout(() => {
+      setState((prev) => ({
+        ...prev,
+        cards: prev.cards.filter((card) => card.id !== id),
+      }));
+    }, 10000);
+  };
+
+  const removeNotification = (id: number) => {
+    setState((prev) => ({
+      ...prev,
+      cards: prev.cards.filter((card) => card.id !== id),
+    }));
+  };
+
+  const fetchConversations = async () => {
+    try {
+      const res = await axiosInstance.get(`/conversation`, {
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-token": token,
+        },
+      });
+      setState((prev) => ({
+        ...prev,
+        conversations: res.data.conversations,
+        apikey: { ...prev.apikey, value: res.data.apiKey },
+      }));
+      const conversationId = params.get("conversationId");
+      if (conversationId !== "NewConversation" && conversationId !== null) {
+        const fileName = res.data.conversations.filter(
+          (con: any) => con._id === conversationId
+        )[0].file.name;
+        setState((prev) => ({
+          ...prev,
+          conversationId,
+          selectedFileName: fileName,
+        }));
+      }
+      if (conversationId === "NewConversation") {
+        addNewConversation();
+      }
+    } catch (err: any) {
+      if (err.response.status === 401) {
+        logout();
+      }
+      addNotification("Error in getting coonversations", "error");
+    }
+  };
+
+  const deleteConversations = async (id: string) => {
+    try {
+      await axiosInstance.delete(`/conversation/delete/${id}`, {
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-token": token,
+        },
+      });
+      setState((prev) => ({
+        ...prev,
+        selectedFileName: "",
+        selectedFile: null,
+        conversationId: "",
+        conversations: state.conversations.filter(
+          (conversation) => conversation._id !== id
+        ),
+      }));
+      navigate("/");
+    } catch (err: any) {
+      if (err.response.status === 401) {
+        logout();
+      }
+      addNotification("Error in getting coonversations", "error");
+    }
+  };
+
+  useEffect(() => {
+    if (isUserLoggedIn) {
+      fetchConversations();
+    }
+  }, [isUserLoggedIn]);
+
+  const setSelectedName = (id: string) => {
+    const name = state.conversations.find(
+      (conversation) => conversation._id === id
+    )?.file.name!;
+    setState((prev) => ({
+      ...prev,
+      selectedFileName: name,
+      selectedFile: null,
+      conversationId: id,
+    }));
+  };
+
+  const setFile = (file: File | null) => {
+    setState((prev) => ({
+      ...prev,
+      selectedFile: file,
+      selectedFileName: file ? file.name : "",
+    }));
+  };
 
   return (
     <Container>
-      <Sidebar removeFile={() => setState((prev) => ({...prev, selectedFile: null}))} />
+      <Sidebar
+        updateName={saveFileName}
+        deleteConversations={deleteConversations}
+        setSelectedName={(id) => setSelectedName(id)}
+        addNewConversation={addNewConversation}
+        conversations={state.conversations}
+        removeFile={logout}
+      />
       <Content>
         <ContentHeader>
           <Label
             sx={{ marginLeft: "1rem" }}
             font={"sm"}
             weight={"b"}
-            content={userName ? `${getGreeting()}, ${userName}` : getGreeting()}
+            content={
+              userName && isUserLoggedIn
+                ? `${getGreeting()}, ${userName}`
+                : getGreeting()
+            }
           />
           <ModeContainer>
+            <TModeContainer
+              onClick={() => {
+                if (isUserLoggedIn) {
+                  openModal('apikey');
+                } else {
+                  addNotification("You need to login first", "error");
+                }
+              }}
+            >
+              <FontAwesomeIcon icon={faKey} />
+            </TModeContainer>
             <ModeToggle />
           </ModeContainer>
         </ContentHeader>
         <Context>
-          <LogoContainer>
-            <Logo />
-          </LogoContainer>
-          <Label
-            sx={{ marginBottom: "3rem" }}
-            font={"md"}
-            weight={"b"}
-            content={"How can I help you today ?"}
-          />
-          {!isUserLoggedIn && (
+          {!state.conversations.find(
+            (conv) => conv._id === state.conversationId
+          )?.chat.length! ? (
             <>
-              <Button
-                placeholder={"Login"}
-                onClick={() => openModal("login")}
+              <LogoContainer>
+                <Logo />
+              </LogoContainer>
+              <Label
+                sx={{ marginBottom: "3rem" }}
+                font={"md"}
+                weight={"b"}
+                content={"How can I help you today ?"}
               />
-              <Button
-                placeholder={"Signup"}
-                onClick={() => openModal("signup")}
-              />
+              {!isUserLoggedIn && (
+                <>
+                  <Button
+                    placeholder={"Login"}
+                    onClick={() => openModal("login")}
+                  />
+                  <Button
+                    placeholder={"Signup"}
+                    onClick={() => openModal("signup")}
+                  />
+                </>
+              )}
             </>
+          ) : (
+            <ChatCon>
+              {state.conversations
+                .find((conv) => conv._id === state.conversationId)
+                ?.chat.map((chat) => (
+                  <Chat from={chat.from} key={chat._id}>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "0.5rem",
+                        alignItems: "center",
+                      }}
+                    >
+                      {chat._id === "test2" && (
+                        <BounceLoader size={"0.7rem"} color="#3F66DA" />
+                      )}
+                      {chat.data}
+                    </div>
+                  </Chat>
+                ))}
+              <div ref={chatEndRef} />
+            </ChatCon>
           )}
         </Context>
-        <div style={{width: '100%', height: '10%', display: 'flex', gap: '15px', alignItems: 'center', justifyContent: 'center'}}>
-            <InputField placeholder={""} type={"file"} value={""} selectedFile={state.selectedFile} setFile={(e) => setState((prev) => ({...prev, selectedFile: e}))}/>
-            <InputField sx={{minWidth: '60%', pointerEvents: isUserLoggedIn && state.selectedFile !== null ? 'auto' : 'none'}} placeholder={isUserLoggedIn ? state.selectedFile !== null ? "Ask me a question" : "Upload a file first" : "Login to ask"} type={"text"} value={state.question} onChange={(e) => setState((prev) => ({...prev, question: e}))}/>
-            <Button disabled={(!isUserLoggedIn || state.selectedFile === null || state.question === '')} sx={{padding: '0.7rem 0.8rem'}} icon={<FontAwesomeIcon icon={faArrowUp} />} onClick={askQuestion}/>
+        <div
+          style={{
+            width: "100%",
+            height: "10%",
+            display: "flex",
+            gap: "15px",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <InputField
+            removeFileName={updateFileName}
+            conversationId={
+              state.conversations.find(
+                (conv) => conv._id === state.conversationId
+              )?._id
+            }
+            selectedFileName={state.selectedFileName}
+            placeholder={""}
+            type={"file"}
+            value={""}
+            selectedFile={state.selectedFile}
+            setFile={(e) => setFile(e!)}
+            addNotification={addNotification}
+          />
+          <InputField
+            sx={{
+              minWidth: "60%",
+              pointerEvents:
+                isUserLoggedIn && state.selectedFileName !== ""
+                  ? "auto"
+                  : "none",
+            }}
+            placeholder={
+              isUserLoggedIn
+                ? state.selectedFileName !== ""
+                  ? "Ask me a question"
+                  : "Upload a file first"
+                : "Login to ask"
+            }
+            type={"text"}
+            value={state.question}
+            onChange={(e) => setState((prev) => ({ ...prev, question: e }))}
+          />
+          <Button
+            disabled={
+              !isUserLoggedIn ||
+              state.selectedFileName === "" ||
+              state.question === ""
+            }
+            sx={{ padding: "0.7rem 0.8rem" }}
+            icon={<FontAwesomeIcon icon={faArrowUp} />}
+            onClick={askQuestion}
+          />
         </div>
       </Content>
       {state.modal && (
-        <Modal width="30vw" onClose={closeModal}>
+        <Modal onClose={closeModal}>
           <Spacer type={"vertical"} value={"2rem"} />
           <Label font={"md"} weight={"b"} content={state.modalChild} />
           <Spacer type={"vertical"} value={"2rem"} />
-          {state.modalChild === 'Apikey' ? (
-    <>
-      <Label font={"xsm"} weight={"b"} content={"Enter you openai api key here"}/>
-      <Spacer type={"vertical"} value={"1rem"} />
-      <InputField
-            width="20vw"
-            placeholder={"Openai api key"}
-            type={"text"}
-            value={state.apikey.value}
-            ierror={state.apikey.error}
-            onChange={(e) =>
-              setState((prev) => ({
-                ...prev,
-                apikey: { ...prev.apikey, value: e },
-              }))
-            }
-          />
-          {state.apikey.error && (
-            <Label
-              sx={{ color: "red" }}
-              font={"xsm"}
-              weight={"b"}
-              content={"Please enter key"}
-            />
+          {state.modalChild === "Apikey" ? (
+            <>
+              <Label
+                font={"xsm"}
+                weight={"b"}
+                content={"Enter you openai api key here"}
+              />
+              <Spacer type={"vertical"} value={"1rem"} />
+              <InputField
+                width="80%"
+                placeholder={"Openai api key"}
+                type={"text"}
+                value={state.apikey.value}
+                ierror={state.apikey.error}
+                onChange={(e) =>
+                  setState((prev) => ({
+                    ...prev,
+                    apikey: { ...prev.apikey, value: e },
+                  }))
+                }
+              />
+              {state.apikey.error && (
+                <Label
+                  sx={{ color: "red" }}
+                  font={"xsm"}
+                  weight={"b"}
+                  content={"Please enter key"}
+                />
+              )}
+              <Spacer type={"vertical"} value={"2rem"} />
+              <Button
+                sx={{ width: "5vw" }}
+                placeholder={"Save"}
+                onClick={submitApikey}
+              />
+            </>
+          ) : (
+            <>
+              {state.modalChild === "Signup" && (
+                <>
+                  <InputField
+                    width="80%"
+                    placeholder={"Name"}
+                    type={"text"}
+                    value={state.name.value}
+                    ierror={state.name.error}
+                    onChange={(e) =>
+                      setState((prev) => ({
+                        ...prev,
+                        name: { ...prev.name, value: e },
+                      }))
+                    }
+                  />
+                  {state.name.error && (
+                    <Label
+                      sx={{ color: "red" }}
+                      font={"xsm"}
+                      weight={"b"}
+                      content={"Name required"}
+                    />
+                  )}
+                  <Spacer type={"vertical"} value={"1rem"} />
+                </>
+              )}
+              <InputField
+                width="80%"
+                placeholder={"Email"}
+                type={"email"}
+                value={state.email.value}
+                ierror={state.email.error}
+                onChange={(e) =>
+                  setState((prev) => ({
+                    ...prev,
+                    email: { ...prev.email, value: e },
+                  }))
+                }
+              />
+              {state.email.error && (
+                <Label
+                  sx={{ color: "red" }}
+                  font={"xsm"}
+                  weight={"b"}
+                  content={
+                    state.email.value.trim() === ""
+                      ? "Email required"
+                      : "Enter a valid email"
+                  }
+                />
+              )}
+              <Spacer type={"vertical"} value={"1rem"} />
+              <InputField
+                width="80%"
+                placeholder={"Password"}
+                type={"password"}
+                value={state.password.value}
+                ierror={state.password.error}
+                onChange={(e) =>
+                  setState((prev) => ({
+                    ...prev,
+                    password: { ...prev.password, value: e },
+                  }))
+                }
+              />
+              {state.password.error && (
+                <Label
+                  sx={{ color: "red" }}
+                  font={"xsm"}
+                  weight={"b"}
+                  content={"Password required"}
+                />
+              )}
+              {state.modalChild === "Signup" && (
+                <>
+                  <Spacer type={"vertical"} value={"1rem"} />
+                  <InputField
+                    width="80%"
+                    placeholder={"Confirm Password"}
+                    type={"password"}
+                    value={state.cnfPassword.value}
+                    ierror={state.cnfPassword.error}
+                    onChange={(e) =>
+                      setState((prev) => ({
+                        ...prev,
+                        cnfPassword: { ...prev.cnfPassword, value: e },
+                      }))
+                    }
+                  />
+                  {state.cnfPassword.error && (
+                    <Label
+                      sx={{ color: "red" }}
+                      font={"xsm"}
+                      weight={"b"}
+                      content={
+                        state.cnfPassword.value === ""
+                          ? "Password required"
+                          : "Password is not same"
+                      }
+                    />
+                  )}
+                </>
+              )}
+              <Spacer type={"vertical"} value={"2rem"} />
+              <Button
+                sx={{ width: "5vw" }}
+                placeholder={state.modalChild}
+                onClick={state.modalChild === "Signup" ? signup : login}
+              />
+            </>
           )}
-          <Spacer type={"vertical"} value={"2rem"} />
-      <Button
-        sx={{ width: "5vw" }}
-        placeholder={'Save'}
-        onClick={submitApikey}
-      />
-    </>
-    ) :
-    <>
-      {state.modalChild === 'Signup' && 
-        <>
-          <InputField
-            width="20vw"
-            placeholder={"Name"}
-            type={"text"}
-            value={state.name.value}
-            ierror={state.name.error}
-            onChange={(e) =>
-              setState((prev) => ({
-                ...prev,
-                name: { ...prev.name, value: e },
-              }))
-            }
-          />
-          {state.name.error && (
-            <Label
-              sx={{ color: "red" }}
-              font={"xsm"}
-              weight={"b"}
-              content={"Name required"}
-            />
-          )}
-          <Spacer type={"vertical"} value={"1rem"} />
-        </>
-      }
-      <InputField
-        width="20vw"
-        placeholder={"Email"}
-        type={"email"}
-        value={state.email.value}
-        ierror={state.email.error}
-        onChange={(e) =>
-          setState((prev) => ({
-            ...prev,
-            email: { ...prev.email, value: e },
-          }))
-        }
-      />
-      {state.email.error && (
-        <Label
-          sx={{ color: "red" }}
-          font={"xsm"}
-          weight={"b"}
-          content={
-            state.email.value.trim() === ""
-              ? "Email required"
-              : "Enter a valid email"
-          }
-        />
-      )}
-      <Spacer type={"vertical"} value={"1rem"} />
-      <InputField
-        width="20vw"
-        placeholder={"Password"}
-        type={"password"}
-        value={state.password.value}
-        ierror={state.password.error}
-        onChange={(e) =>
-          setState((prev) => ({
-            ...prev,
-            password: { ...prev.password, value: e },
-          }))
-        }
-      />
-      {state.password.error && (
-        <Label
-          sx={{ color: "red" }}
-          font={"xsm"}
-          weight={"b"}
-          content={"Password required"}
-        />
-      )}
-      {state.modalChild === "Signup" && (
-        <>
-          <Spacer type={"vertical"} value={"1rem"} />
-          <InputField
-            width="20vw"
-            placeholder={"Confirm Password"}
-            type={"password"}
-            value={state.cnfPassword.value}
-            ierror={state.cnfPassword.error}
-            onChange={(e) =>
-              setState((prev) => ({
-                ...prev,
-                cnfPassword: { ...prev.cnfPassword, value: e },
-              }))
-            }
-          />
-          {state.cnfPassword.error && (
-            <Label
-              sx={{ color: "red" }}
-              font={"xsm"}
-              weight={"b"}
-              content={
-                state.cnfPassword.value === ""
-                  ? "Password required"
-                  : "Password is not same"
-              }
-            />
-          )}
-        </>
-      )}
-      <Spacer type={"vertical"} value={"2rem"} />
-      <Button
-        sx={{ width: "5vw" }}
-        placeholder={state.modalChild}
-        onClick={state.modalChild === "Signup" ? signup : login}
-      />
-      {state.signupCompleted.value !== 0 && (
-        <>
-          <Spacer type={"vertical"} value={"2rem"} />
-          <Label
-            sx={{
-              color: state.signupCompleted.value === 1 ? "green" : "red",
-            }}
-            font={"xsm"}
-            weight={"b"}
-            content={state.signupCompleted.msg}
-          />
-        </>
-      )}
-      {state.loginError.value && (
-        <>
-          <Spacer type={"vertical"} value={"2rem"} />
-          <Label
-            sx={{ color: "red" }}
-            font={"xsm"}
-            weight={"b"}
-            content={state.loginError.msg}
-          />
-        </>
-      )}
-    </>}
         </Modal>
       )}
+      <Notifications cards={state.cards} removeCard={removeNotification} />
+      {state.loading.value && <Loader msg={state.loading.msg} />}
     </Container>
   );
 }
+
+const Chat = styled.div<{ from: "user" | "assistant" }>`
+  align-self: ${(p) => (p.from === "assistant" ? "start" : "end")};
+  background-color: ${(p) => p.theme.colors.base300};
+  padding: 1rem;
+  border-radius: 10px;
+  position: relative;
+  max-width: 70%;
+  color: ${(p) => p.theme.colors.font100};
+  ${(p) =>
+    p.from === "assistant" ? "margin-left: 2rem" : "margin-right: 2rem"}
+`;
+
+const ChatCon = styled.div`
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: start;
+  overflow: hidden;
+  overflow-y: scroll;
+  ${hideScrollbarStyles}
+  padding: 1rem 0rem;
+  gap: 2rem;
+`;
 
 const Container = styled.div`
   width: 100%;

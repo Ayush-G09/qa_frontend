@@ -4,6 +4,8 @@ import Button from "./Button";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPaperclip, faX } from "@fortawesome/free-solid-svg-icons";
 import Label from "./Label";
+import { useSelector } from "react-redux";
+import { truncateString } from "../utils";
 
 type Props = {
   placeholder: string;
@@ -17,6 +19,10 @@ type Props = {
   disabled?: boolean;
   setFile?: (value: File | null) => void;
   selectedFile?: File | null;
+  selectedFileName?: string;
+  removeFileName?: (conversationId: string, fileName: string) => void;
+  conversationId?: string;
+  addNotification?: (msg: string, type: "error" | "success") => void;
 };
 
 type State = {
@@ -35,6 +41,10 @@ function InputField({
   disabled = false,
   setFile,
   selectedFile,
+  selectedFileName,
+  removeFileName,
+  conversationId,
+  addNotification,
 }: Props) {
   const [state, setState] = useState<State>({
     inputType: type === "date" ? "text" : type,
@@ -51,19 +61,12 @@ function InputField({
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files && event.target.files[0];
     if (file) {
-      const allowedTypes = [
-        "application/pdf",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/vnd.ms-excel",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "text/plain",
-      ];
+      const allowedTypes = ["application/pdf"];
 
       if (allowedTypes.includes(file.type)) {
         setFile!(file);
       } else {
-        alert("Please select a valid file type (PDF, Excel, Word, or TXT).");
+        addNotification!("Please select a valid file type (PDF).", "error");
         setFile!(null);
       }
     }
@@ -80,7 +83,10 @@ function InputField({
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+    removeFileName!(conversationId!, "");
   };
+
+  const isUserLoggedIn = useSelector((state: any) => state.isUserLoggedIn);
 
   return (
     <>
@@ -90,6 +96,7 @@ function InputField({
             sx={{ padding: "0.7rem 0.8rem" }}
             onClick={handleClick}
             icon={<FontAwesomeIcon icon={faPaperclip} />}
+            disabled={!isUserLoggedIn}
           >
             <input
               type="file"
@@ -98,21 +105,25 @@ function InputField({
               accept=".pdf,.xlsx,.xls,.doc,.docx,.txt"
               style={{ display: "none" }}
             />
-            {selectedFile && (
+            {selectedFile || selectedFileName ? (
               <Label
-                font={"xsm"}
-                weight={"b"}
-                content={selectedFile.name}
+                font="xsm"
+                weight="b"
+                content={
+                  selectedFile
+                    ? truncateString(selectedFile.name)
+                    : truncateString(selectedFileName!)
+                }
               />
-            )}
+            ) : null}
           </Button>
-          {selectedFile && (
+          {selectedFile || selectedFileName ? (
             <Button
               sx={{ padding: "0.7rem 0.8rem" }}
               onClick={handleRemove}
               icon={<FontAwesomeIcon icon={faX} />}
             />
-          )}
+          ) : null}
         </>
       ) : (
         <Field

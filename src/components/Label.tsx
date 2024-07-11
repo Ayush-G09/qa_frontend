@@ -17,17 +17,19 @@ function Label({ font, weight, content, sx, onClick }: Props) {
   );
 }
 
-const Con = styled.label<{ font: "xsm" | "sm" | "md" | "lg" | "12"; weight: "t" | "n" | "b" }>`
+const Con = styled.label.withConfig({
+  shouldForwardProp: (prop) => prop !== "ierror",
+})<{ font: "xsm" | "sm" | "md" | "lg" | "12"; weight: "t" | "n" | "b" }>`
   font-size: ${(p) =>
     p.font === "sm"
       ? p.theme.fontSize.small
       : p.font === "md"
       ? p.theme.fontSize.medium
-      : p.font === "lg" 
+      : p.font === "lg"
       ? p.theme.fontSize.large
-      : p.font === "xsm" 
-      ? '0.8rem'
-      : '1.2rem'}; 
+      : p.font === "xsm"
+      ? "0.8rem"
+      : "1.2rem"};
   font-weight: ${(p) =>
     p.weight === "t"
       ? p.theme.fontWeight.small
@@ -37,7 +39,17 @@ const Con = styled.label<{ font: "xsm" | "sm" | "md" | "lg" | "12"; weight: "t" 
 
   @media (max-width: 768px) {
     font-size: ${(p) =>
-      p.font === "sm" ? "0.8rem" : p.font === "md" ? "1.6rem" : "2.4rem"};
+      p.font === "sm"
+        ? "0.8rem"
+        : p.font === "md"
+        ? "1.6rem"
+        : p.font === "xsm"
+        ? "1rem"
+        : "2.4rem"};
+  }
+
+  @media (max-width: 426px) {
+    font-size: ${(p) => p.font === "xsm" && "0.8rem"};
   }
 `;
 

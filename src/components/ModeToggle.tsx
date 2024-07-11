@@ -14,13 +14,13 @@ function ModeToggle() {
   };
 
   return (
-    <Container onClick={toggleMode}>
+    <TModeContainer onClick={toggleMode}>
       <FontAwesomeIcon icon={mode === "light" ? faSun : faMoon} />
-    </Container>
+    </TModeContainer>
   );
 }
 
-const Container = styled.div`
+export const TModeContainer = styled.div`
   width: 2rem;
   font-size: 1rem;
   background-color: ${(p) => p.theme.colors.base200};
